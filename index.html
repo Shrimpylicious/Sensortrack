@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 Sensor Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #111;
+            color: white;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        .section { flex: 1; padding: 20px; text-align: center; border-bottom: 2px solid white; }
+        #tabs { display: flex; justify-content: center; background: gray; padding: 10px; }
+        .tab { margin: 0 10px; padding: 10px 20px; cursor: pointer; background: black; color: white; border-radius: 5px; }
+        .tab.active { background: lime; }
+        .hidden { display: none; }
+        #sensorTabs, #calibration { padding: 20px; }
+        input, select, button { padding: 10px; margin: 5px; width: 80%; }
+    </style>
+</head>
+<body>
+
+    <!-- Live Sensor Data (Top 1/3) -->
+    <div class="section">
+        <h2>Live Readings</h2>
+        <div id="sensorReading" style="font-size: 50px; color: lime;">Waiting for data...</div>
+    </div>
+
+    <!-- Graph (Middle 1/3) -->
+    <div class="section">
+        <h2>Sensor Data Graph</h2>
+        <canvas id="sensorChart"></canvas>
+    </div>
+
+    <!-- Tabs (Bottom 1/3) -->
+    <div id="tabs">
+        <div class="tab active" onclick="switchTab('sensorTabs')">Sensors</div>
+        <div class="tab" onclick="switchTab('calibration')">Calibration</div>
+    </div>
+
+    <!-- Sensors Page -->
+    <div id="sensorTabs" class="section">
+        <h2>Sensors</h2>
+        <div id="sensorList">Loading...</div>
+    </div>
+
+    <!-- Calibration Page -->
+    <div id="calibration" class="section hidden">
+        <h2>Calibration</h2>
+        <label>Select Sensor:</label>
+        <select id="sensorSelector"></select>
+        <br>
+        <input id="calib1" placeholder="Calibration Input 1">
+        <input id="calib2" placeholder="Calibration Input 2">
+        <input id="calib3" placeholder="Calibration Input 3">
+        <input id="calib4" placeholder="Calibration Input 4">
+        <br>
+        <button onclick="storeCalibration()">Save Calibration</button>
+    </div>
+
+    <script>
+        let sensorChart;
+
+        function fetchLiveData() {
+            fetch('/get_data')
+            .then(response => response.json())
+            .then(data => {
+                console.log("🌐 Received:", JSON.stringify(data, null, 2));
+
+                if (Object.keys(data).length === 0) {
+                    document.getElementById("sensorReading").innerText = "⚠️ No sensor data!";
+                    return;
+                }
+
+                // Display last sensor value
+                let sensorKeys = Object.keys(data);
+                let lastSensor = sensorKeys[sensorKeys.length - 1];
+                let readings = data[lastSensor];
+                let latestEntry = readings[readings.length - 1];
+
+                document.getElementById("sensorReading").innerHTML = 
+                    `<span style="font-size: 60px; color: lime;">🧲 ${latestEntry.data}</span><br>
+                     <span style="font-size: 18px; color: gray;">at ${latestEntry.timestamp}</span>`;
+
+                updateChart(readings);
+                loadSensors(sensorKeys);
+            });
+        }
+
+        function loadSensors(sensorKeys) {
+            let sensorList = document.getElementById("sensorList");
+            let sensorSelector = document.getElementById("sensorSelector");
+            sensorList.innerHTML = "";
+            sensorSelector.innerHTML = "";
+
+            sensorKeys.forEach(sensor => {
+                sensorList.innerHTML += `<div class="tab" onclick="fetchSensorData('${sensor}')">${sensor}</div>`;
+                sensorSelector.innerHTML += `<option value="${sensor}">${sensor}</option>`;
+            });
+        }
+
+        function storeCalibration() {
+            let sensor = document.getElementById("sensorSelector").value;
+            let inputs = {
+                "input1": document.getElementById("calib1").value,
+                "input2": document.getElementById("calib2").value,
+                "input3": document.getElementById("calib3").value,
+                "input4": document.getElementById("calib4").value
+            };
+
+            fetch('/store', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ data: 0, sensor_id: sensor, category_inputs: inputs })
+            }).then(() => alert("Calibration Saved!"));
+        }
+
+        function switchTab(tab) {
+            document.getElementById("sensorTabs").classList.add("hidden");
+            document.getElementById("calibration").classList.add("hidden");
+            document.getElementById(tab).classList.remove("hidden");
+        }
+
+        function initializeChart() {
+    const ctx = document.getElementById('sensorChart').getContext('2d');
+    sensorChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [{
+                label: 'Sensor Value',
+                borderColor: 'rgb(75, 192, 192)',
+                data: []
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                x: { title: { display: true, text: 'Time' } },
+                y: { title: { display: true, text: 'Value' } }
+            }
+        }
+    });
+}
+
+        function updateChart(data) {
+    if (!sensorChart) {
+        console.warn("Chart not initialized!");
+        return;
+    }
+
+    let labels = data.map(entry => entry.timestamp);
+    let values = data.map(entry => parseFloat(entry.data));
+
+    sensorChart.data.labels = labels;
+    sensorChart.data.datasets[0].data = values;
+    sensorChart.update();
+}
+
+        initializeChart();
+        fetchLiveData();
+        setInterval(fetchLiveData, 5000);
+    </script>
+
+</body>
+</html>
